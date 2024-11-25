@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BGT Vault Calculator - Berachain</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-4xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-2xl font-bold mb-4">BGT Vault Position Tracker</h1>
+            <div class="flex gap-4">
+                <input type="text" id="walletAddress" placeholder="Enter wallet address" 
+                    class="flex-1 p-2 border rounded"/>
+                <button onclick="searchWallet()" 
+                    class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600">
+                    Search
+                </button>
+            </div>
+        </div>
+
+        <div id="loadingState" class="hidden">
+            <div class="text-center p-4">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                <p class="mt-2">Fetching positions...</p>
+            </div>
+        </div>
+
+        <div id="results" class="space-y-4"></div>
+
+        <div id="errorState" class="hidden bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
+        </div>
+    </div>
+
+    <script>
+        const EXPLORER_BASE_URL = 'https://bartio.beratrail.io/api';
+        const DAILY_BGT_EMISSIONS = 400000;
+        
+        const VAULTS = [
+            {
+                name: "LGBT-WBERA",
+                stakingToken: "0x6AcBBedEcD914dE8295428B4Ee51626a1908bB12",
+                rewardVault: "0x7a6b92457e7D7e7a5C1A2245488b850B7Da8E01D",
+                captureRate: 18
+            },
+            {
+                name: "PAW-HONEY",
+                stakingToken: "0xa51afAF359d044F8e56fE74B9575f23142cD4B76",
+                rewardVault: "0x1992b26E2617928966B4F8e8eeCF41C6e7A77010",
+                captureRate: 10
+            }
+        ];
+
+        async function fetchHoldings(address) {
+            try {
+                const response = await fetch(
+                    `${EXPLORER_BASE_URL}/v2/network/berachain/evm/80084/address/${address}/erc20-holdings`
+                );
+                if (!response.ok) throw new Error('Network response was not ok');
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching holdings:', error);
+                throw error;
+            }
+        }
+
+        async function fetchTokenInfo(tokenAddress) {
+            try {
+                const response = await fetch(
+                    `${EXPLORER_BASE_URL}/v2/network/berachain/evm/80084/erc20/${tokenAddress}`
+                );
+                if (!response.ok) throw new Error('Network response was not ok');
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching token info:', error);
+                throw error;
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingState').style.display = show ? 'block' : 'none';
+            document.getElementById('results').style.display = show ? 'none' : 'block';
+        }
+
+        function showError(message) {
+            const errorState = document.getElementById('errorState');
+            errorState.textContent = message;
+            errorState.classList.remove('hidden');
+        }
+
+        function renderVaultPosition(position) {
+            return `
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-xl font-bold">${position.vault}</h3>
+                        <div class="text-right">
+                            <p class="text-sm text-gray-600">Daily BGT</p>
+                            <p class="text-lg font-bold">${position.dailyBGT.toFixed(2)} BGT</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-sm text-gray-600">Your Share</p>
+                            <p class="text-lg">${position.share.toFixed(4)}%</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-600">Your Balance</p>
+                            <p class="text-lg">${position.balance.toFixed(4)}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function searchWallet() {
+            const address = document.getElementById('walletAddress').value.trim();
+            if (!address) {
+                showError('Please enter a wallet address');
+                return;
+            }
+
+            showLoading(true);
+            document.getElementById('errorState').classList.add('hidden');
+            
+            try {
+                const holdings = await fetchHoldings(address);
+                const positions = [];
+
+                for (const vault of VAULTS) {
+                    const holding = holdings.find(h => h.token.address.toLowerCase() === vault.stakingToken.toLowerCase());
+                    if (holding) {
+                        const tokenInfo = await fetchTokenInfo(vault.stakingToken);
+                        const share = (holding.balance / tokenInfo.totalSupply) * 100;
+                        const dailyBGT = DAILY_BGT_EMISSIONS * (vault.captureRate / 100) * (share / 100);
+                        
+                        positions.push({
+                            vault: vault.name,
+                            share: share,
+                            balance: holding.balance,
+                            dailyBGT: dailyBGT
+                        });
+                    }
+                }
+
+                const resultsDiv = document.getElementById('results');
+                if (positions.length === 0) {
+                    resultsDiv.innerHTML = '<div class="bg-white rounded-lg shadow-lg p-6 text-center">No vault positions found</div>';
+                } else {
+                    resultsDiv.innerHTML = positions.map(renderVaultPosition).join('');
+                }
+            } catch (error) {
+                showError('Error fetching wallet data. Please try again.');
+                console.error(error);
+            } finally {
+                showLoading(false);
+            }
+        }
+    </script>
+</body>
+</html>
